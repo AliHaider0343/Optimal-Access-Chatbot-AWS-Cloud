@@ -1,15 +1,6 @@
-import signal
 import subprocess
-import sys
-import threading
 import time
-
-from langchain_community.vectorstores.chroma import Chroma
-
 from DocumentsRetriever import retrive_context
-import streamlit as st
-import pandas as pd
-# Function to create the Home page
 import multiprocessing
 from ChatChain import *
 
@@ -42,7 +33,7 @@ def stop_thread():
 # Function to create the Create Chatbot page
 def create_chatbot():
     st.title("Create and Configure your Chatbot.")
-
+    st.markdown("Make sure to Add Correct and Corresponding XML Url and Wordpress Links")
     if 'syncing' not in st.session_state:
         st.session_state.syncing=None
     if 'data_ingestion_process' not in st.session_state:
@@ -51,45 +42,44 @@ def create_chatbot():
     if st.session_state.syncing is None:
         # Input box for user input
         user_input = st.text_input('Enter your knowledge base URL (XML URL with Comma Seperation without Qoutes) ')
-        add_button = st.button('Append Knowledge Base')
-        # Append user input to the DataFrame
-        dataframe = pd.DataFrame()
+        wordPress_links_input = st.text_input('Enter your Coressponding Word Press Website base URL to Curator Hub (Must ensure the Link Points to Your website Kurator Hub like https://volunteeradvocacy.com/hub) ')
+
         # Other user inputs
         username = st.text_input("Your username")
         chatbot_name = st.text_input("Chatbot name")
         sync_period = st.number_input("Knowledge base Synchronization period (in seconds):", min_value=1, value=60)
-        if add_button and user_input:
-            urls=user_input.split(',')
-            dataframe['Knowledge Base URLS']=urls
-            st.write(dataframe)
         create_button=st.button("Create Chatbot")
-        if username and chatbot_name and sync_period and user_input and create_button:
-            # Process the inputs (customize this part based on your application logic)
-            Python = r'myenv/Scripts/python.exe'
-            st.session_state.user_id = username
-            st.session_state.chatbot_id = chatbot_name
-            st.session_state.syncing = True
-            if 'status' in st.session_state:
-                del st.session_state.status
-            def run_subprocess(user_input, username, chatbot_name, sync_period):
-                command = [Python, "Data-Ingestion-and-Sync.py", user_input, username, chatbot_name, str(sync_period)]
-                process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                return process
-            # Start the subprocess in a separate thread
-            st.session_state.data_ingestion_process = run_subprocess(user_input, username, chatbot_name, sync_period)
 
-            #if we use the below code it willd isplay the output in the terminal and doesnt allow su to delete the theread started
-            # if 'subprocess_thread' and 'handle' not in st.session_state:
-            #     st.session_state.subprocess_thread = threading.Thread(target=run_subprocess)
-            #     st.session_state.handle=st.session_state.subprocess_thread.start()
-            #print('>>>>>>>>>>>>>>>',st.session_state.subprocess_thread)
+        if username and chatbot_name and sync_period and user_input and create_button and wordPress_links_input:
+            if len(user_input.split(','))==len(wordPress_links_input.split(',')):
+                # Process the inputs (customize this part based on your application logic)
+                Python = r'myenv/Scripts/python.exe'
+                st.session_state.user_id = username
+                st.session_state.chatbot_id = chatbot_name
+                st.session_state.syncing = True
+                if 'status' in st.session_state:
+                    del st.session_state.status
+                def run_subprocess(user_input,wordPress_links_input, username, chatbot_name, sync_period):
+                    command = [Python, "Data-Ingestion-and-Sync.py", user_input,wordPress_links_input, username, chatbot_name, str(sync_period)]
+                    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                    return process
+                # Start the subprocess in a separate thread
+                st.session_state.data_ingestion_process = run_subprocess(user_input,wordPress_links_input, username, chatbot_name, sync_period)
 
-            st.success(f"Chatbot is being created with the following inputs:\n"
-                       f"Username: {username}\n"
-                       f"Chatbot Name: {chatbot_name}\n"
-                       f"Sync Period: {sync_period} seconds")
-            time.sleep(2)
-            st.rerun()
+                #if we use the below code it willd isplay the output in the terminal and doesnt allow su to delete the theread started
+                # if 'subprocess_thread' and 'handle' not in st.session_state:
+                #     st.session_state.subprocess_thread = threading.Thread(target=run_subprocess)
+                #     st.session_state.handle=st.session_state.subprocess_thread.start()
+                #print('>>>>>>>>>>>>>>>',st.session_state.subprocess_thread)
+
+                st.success(f"Chatbot is being created with the following inputs:\n"
+                           f"Username: {username}\n"
+                           f"Chatbot Name: {chatbot_name}\n"
+                           f"Sync Period: {sync_period} seconds")
+                time.sleep(10)
+                st.rerun()
+            else:
+                st.warning("Please Check the URls and Corressponding Wordpress Links (Mismatch between Corresponding Wordpress Link and URLS.")
         else:
             st.warning("Please Fill All the Fields and then Hit to Create bot.")
 
@@ -177,6 +167,8 @@ def retrieve_information():
         if query and get:
             if st.session_state.user_id and st.session_state.chatbot_id:
                 # Create a multiprocessing Pool with a single worker
+
+                print(query, st.session_state.user_id, st.session_state.chatbot_id, None)
                 with multiprocessing.Pool(processes=1) as pool:
                     result = pool.apply(retrive_context, args=(query, st.session_state.user_id, st.session_state.chatbot_id, None))
                 for context in result:
@@ -198,7 +190,7 @@ st.set_page_config(
 )
 st.markdown("""
 <script>
-document.body.style.zoom = 0.8;
+document.body.style.zoom = 0.7;
 </script>
 """, unsafe_allow_html=True)
 

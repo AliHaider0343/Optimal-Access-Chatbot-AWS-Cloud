@@ -16,29 +16,28 @@ from langchain_core.documents import Document
 from datetime import datetime
 import numpy as np
 import streamlit as st
-os.environ['OPENAI_API_KEY'] = "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"
+os.environ['OPENAI_API_KEY']="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"
 source_column = "KuratedContent_sourceUrl"
 metadata_columns = ['Channel_about', 'Channel_keywords', 'Collection_about', 'Collection_keywords', 'File_about',
                     'File_keywords', 'KuratedContent_author', 'KuratedContent_datePublished',
                     'KuratedContent_dateModified', 'KuratedContent_keywords', 'KuratedContent_publisher',
-                    'KuratedContent_sourceUrl']
+                    'KuratedContent_sourceUrl','KuratedContent_WordpressPopupUrl']
 main_content_columns = ['KuratedContent_Description_and_headline']
-
 
 def download_and_print_xml(url):
     def fix_br_tags(xml_string):
         fixed_xml_string = re.sub(r'<br([^>]*)>', r'<br\1/>', xml_string)
         return fixed_xml_string.replace('&nbsp;', '')
-
     try:
         response = requests.get(url)
         if response.status_code == 200:
-            return fix_br_tags(response.text)
+            xml_content = response.content.decode('utf-8')  # Decode using UTF-8
+            fixed_xml_content = fix_br_tags(xml_content)
+            return fixed_xml_content
         else:
             print(f"Error: Unable to fetch XML. Status code: {response.status_code}")
     except Exception as e:
         print(f"Error: {e}")
-
 
 def extract_text_from_element(element):
     try:
@@ -55,8 +54,7 @@ def extract_text_from_element(element):
         print(f"Error extracting text: {e}")
     return None
 
-
-def parse_xml(xml_text):
+def parse_xml(xml_text,wordPress_website_link):
     root = ET.fromstring(xml_text)
     data = {
         'about': root.find('.//span[@itemprop="about"]').text,
@@ -86,6 +84,7 @@ def parse_xml(xml_text):
                 articals_data = {
                     'ID': artical.find('.//span[@itemprop="ID"]').text,
                     'sourceUrl': artical.find('.//meta[@itemprop="mainEntityOfPage"]').get('itemid'),
+                    'WordpressPopupUrl': str(wordPress_website_link + clean_wordpress_Link(channel_data['about'],collection_data['about'],(artical.find('.//h2[@itemprop="headline"]').text).strip())),
                     'headline': artical.find('.//h2[@itemprop="headline"]').text,
                     'author': artical.find('.//h3[@itemprop="author"]/span[@itemprop="name"]').text,
                     'description': extract_text_from_element(artical.find('.//span[@itemprop="description"]')),
@@ -99,7 +98,22 @@ def parse_xml(xml_text):
         data['Channels'].append(channel_data)
     return data
 
+def clean_text(text):
+    # Use regular expression to remove unwanted characters
+    cleaned_text=text.replace("'","")
+    cleaned_text = re.sub(r'[^a-zA-Z0-9\'’-“”]', '-', cleaned_text)
+    # Replace empty spaces with hyphens
+    cleaned_text = cleaned_text.replace(' ', '-')
+    # Remove extra hyphens and convert to lowercase
+    cleaned_text = re.sub(r'-+', '-', cleaned_text).lower()
+    return cleaned_text.strip('-')
 
+def clean_wordpress_Link(channel_name,collection_name,articals_headline):
+    channel_name=channel_name.replace(' ', '-')
+    collection_name=collection_name.replace(' ', '-').lower()
+    articals_headline=clean_text(articals_headline.replace(' ', '-').lower())
+
+    return '/' +channel_name + '/' + collection_name+ '/'+articals_headline
 def check_vector_store_exists(vector_store_name):
     vector_store_path = os.path.join(os.getcwd(), vector_store_name)
 
@@ -110,8 +124,6 @@ def check_vector_store_exists(vector_store_name):
         # Handle any exceptions that might occur during path checking
         print(f"Error checking vector store: {e}")
         return False
-
-
 def Append_Single_file_Articals(data):
     Single_data_Collection = []
     for channel_data in data['Channels']:
@@ -120,6 +132,7 @@ def Append_Single_file_Articals(data):
                 row = {
                     'KuratedContent_article_id': articals_data['ID'],
                     'KuratedContent_sourceUrl': articals_data['sourceUrl'],
+                    'KuratedContent_WordpressPopupUrl': articals_data['WordpressPopupUrl'],
                     'KuratedContent_headline': articals_data['headline'],
                     'KuratedContent_author': articals_data['author'],
                     'KuratedContent_description': articals_data['description'],
@@ -144,7 +157,6 @@ def Append_Single_file_Articals(data):
                 }
                 Single_data_Collection.append(row)
     return Single_data_Collection
-
 
 def Collect_Process_Data(parsed_data_against_urls):
     Articals_Collection = []
@@ -201,12 +213,12 @@ def update_documents_to_delete_pervious_versions_of_updated_Data(chroma_db, filt
     return f'Previous Version of {count} documents got Deleted From Vector Store.'
 
 
-def Main_Runner_for_Single_user(Urls_for_chatbot, user_id, chatbot_id, Sync_period):
+def Main_Runner_for_Single_user(Urls_for_chatbot,urls_corresponding_wordPress_website_links, user_id, chatbot_id, Sync_period):
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=5000, chunk_overlap=100)
     while True:
         parsed_data_against_urls = []
-        for url in Urls_for_chatbot:
-            parsed_data_against_urls.append(parse_xml(download_and_print_xml(url)))
+        for url,wordpress_link in zip(Urls_for_chatbot,urls_corresponding_wordPress_website_links):
+            parsed_data_against_urls.append(parse_xml(download_and_print_xml(url),wordpress_link))
 
         processed_data = Collect_Process_Data(parsed_data_against_urls)
         # here check if we have to create new vector store or we might have to update preious
@@ -214,7 +226,6 @@ def Main_Runner_for_Single_user(Urls_for_chatbot, user_id, chatbot_id, Sync_peri
             chroma_db = Chroma(persist_directory=f"./{user_id}-{chatbot_id}-chroma_db",
                                embedding_function=OpenAIEmbeddings())
             documents = chroma_db.get()
-
             unique_dates = set()
             for metadata in documents['metadatas']:
                 unique_dates.add(int(metadata['KuratedContent_dateModified']))
@@ -250,10 +261,9 @@ def Main_Runner_for_Single_user(Urls_for_chatbot, user_id, chatbot_id, Sync_peri
 
 if __name__ == "__main__":
     # Example usage: This script can be scheduled to run periodically or called by the second script
-    if len(sys.argv) == 5:
-        urls, user_id,chatbot_id,Sync_period = sys.argv[1], sys.argv[2],sys.argv[3],sys.argv[4]
-
-        Main_Runner_for_Single_user(urls.split(','),user_id, chatbot_id, int(Sync_period))
+    if len(sys.argv) == 6:
+        urls,wordpress_links, user_id,chatbot_id,Sync_period = sys.argv[1], sys.argv[2],sys.argv[3],sys.argv[4],sys.argv[5]
+        Main_Runner_for_Single_user(urls.split(','),wordpress_links.split(','),user_id, chatbot_id, int(Sync_period))
     else:
         print("Usage: python update_database.py arg1 arg2")
 
