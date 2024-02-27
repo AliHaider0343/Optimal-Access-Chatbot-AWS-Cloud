@@ -1,0 +1,10 @@
+requests
+pandas
+langchain_openai
+langchain_community
+langchain_core
+streamlit
+langchain
+langchain_google_genai
+chromadb==0.4.22
+pysqlite3-binary
